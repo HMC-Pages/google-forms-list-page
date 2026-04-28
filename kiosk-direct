@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Forms Kiosk</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<!--
+  DIRECT NAVIGATION VERSION
+  Tapping a form navigates the browser window to that Google Form URL directly.
+  ✓ No iframe embedding — forms always load correctly.
+  ✗ Once the user navigates away, there is no in-app "Back" button.
+
+HOW USERS RETURN TO THE MENU after filling out a form:
+The recommended setup for ChromeOS kiosk mode is to configure a
+“Managed Guest Session” (or Kiosk App) with an auto-restart policy:
+Google Admin Console → Devices → Chrome → Settings →
+Managed Guest Session → Session length / Device restart on idle
+Set idle restart to e.g. 15 minutes. This will reload the kiosk
+URL automatically after inactivity, bringing users back to this menu.
+
+Alternatively, assign the ChromeOS “Home” button to return to the
+kiosk start URL in your Admin Console device policy.
+–>
+
+<style>
+:root {
+  --bg:           #EEF2F7;
+  --card:         #ffffff;
+  --primary:      #0B5563;
+  --primary-lt:   #1A7A8A;
+  --accent:       #D4EDF1;
+  --text:         #1C2E35;
+  --muted:        #607585;
+  --border:       #D0DCE4;
+  --danger:       #C0392B;
+  --shadow:       0 2px 18px rgba(11,85,99,.10);
+  --r:            18px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100dvh;
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.screen { position: fixed; inset: 0; display: flex; flex-direction: column; }
+.hidden { display: none !important; }
+
+/* ── MENU ────────────────────────────────────────────────────── */
+
+.menu-header {
+  background: var(--primary);
+  color: white;
+  padding: 30px 32px 26px;
+  text-align: center;
+  position: relative;
+  flex-shrink: 0;
+}
+.menu-header h1 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 2rem;
+  font-weight: 400;
+}
+.menu-header p {
+  font-size: .95rem;
+  font-weight: 300;
+  opacity: .75;
+  margin-top: 6px;
+}
+
+.admin-trigger {
+  position: absolute;
+  bottom: 12px; right: 16px;
+  background: rgba(255,255,255,.10);
+  border: 1px solid rgba(255,255,255,.20);
+  color: rgba(255,255,255,.45);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: .72rem;
+  font-family: 'Outfit', sans-serif;
+  cursor: pointer;
+  transition: all .2s;
+  letter-spacing: .04em;
+}
+.admin-trigger:active { background: rgba(255,255,255,.22); color: rgba(255,255,255,.85); }
+
+.grid-wrap { flex: 1; overflow-y: auto; padding: 28px 24px; }
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.form-card {
+  background: var(--card);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 28px 22px 22px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  user-select: none;
+  transition: transform .13s, box-shadow .13s, border-color .13s;
+}
+.form-card:active {
+  transform: scale(.97);
+  box-shadow: 0 1px 8px rgba(11,85,99,.08);
+  border-color: var(--primary);
+}
+.card-name  { font-size: 1.15rem; font-weight: 500; line-height: 1.3; }
+.card-arrow { font-size: 1.2rem; color: var(--primary-lt); text-align: right; margin-top: 14px; }
+
+/* "Opening…" feedback overlay, shown briefly before navigation */
+.card-loading { font-size: .85rem; color: var(--muted); margin-top: 6px; display: none; }
+.form-card.loading .card-loading { display: block; }
+.form-card.loading .card-arrow   { display: none; }
+
+.empty-state {
+  text-align: center; padding: 60px 20px;
+  color: var(--muted); grid-column: 1/-1;
+}
+.empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+
+/* ── ADMIN OVERLAY ───────────────────────────────────────────── */
+
+#admin-overlay {
+  position: fixed; inset: 0;
+  background: rgba(11,40,50,.72);
+  display: flex; align-items: flex-end;
+  z-index: 200;
+  backdrop-filter: blur(4px);
+}
+
+.admin-panel {
+  background: var(--card);
+  border-radius: 24px 24px 0 0;
+  width: 100%; max-height: 88vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  animation: slideUp .22s ease-out;
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+.ap-header {
+  background: var(--primary); color: white;
+  padding: 18px 22px;
+  display: flex; justify-content: space-between; align-items: center;
+  flex-shrink: 0;
+}
+.ap-header h2 { font-family: 'DM Serif Display', serif; font-size: 1.35rem; font-weight: 400; }
+.ap-close {
+  background: rgba(255,255,255,.14); border: none; color: white;
+  width: 34px; height: 34px; border-radius: 50%; font-size: 1.1rem;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.ap-close:active { background: rgba(255,255,255,.30); }
+
+.ap-body { flex: 1; overflow-y: auto; padding: 22px 22px 32px; }
+
+/* ── PASSCODE ────────────────────────────────────────────────── */
+
+#passcode-screen { text-align: center; padding: 12px 0; }
+.pc-title { font-family: 'DM Serif Display', serif; font-size: 1.6rem; color: var(--text); }
+.pc-sub   { color: var(--muted); font-size: .9rem; margin-top: 6px; margin-bottom: 28px; }
+
+.pc-dots { display: flex; gap: 16px; justify-content: center; margin-bottom: 28px; }
+.dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--border); transition: background .15s;
+}
+.dot.on  { background: var(--primary); }
+.dot.err { background: var(--danger); }
+
+.numpad {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 12px; max-width: 264px; margin: 0 auto;
+}
+.num-btn {
+  background: var(--bg); border: 2px solid var(--border); border-radius: 14px;
+  padding: 18px; font-size: 1.4rem; font-family: 'Outfit', sans-serif; font-weight: 500;
+  cursor: pointer; color: var(--text); transition: background .1s, transform .1s;
+}
+.num-btn:active { background: var(--accent); border-color: var(--primary); transform: scale(.93); }
+.num-btn.del   { font-size: 1.1rem; color: var(--muted); }
+.num-btn.blank { visibility: hidden; }
+.pc-err { color: var(--danger); font-size: .88rem; margin-top: 12px; min-height: 20px; }
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  20%,60%  { transform: translateX(-8px); }
+  40%,80%  { transform: translateX(8px); }
+}
+.shake { animation: shake .38s ease; }
+
+/* ── FORM EDITOR ─────────────────────────────────────────────── */
+
+#form-editor { display: none; }
+.sec-label {
+  font-size: .75rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--muted); margin-bottom: 12px;
+}
+
+.fe-item {
+  background: var(--bg); border-radius: 12px; padding: 13px 15px;
+  margin-bottom: 9px; display: flex; align-items: center; gap: 12px;
+}
+.fe-info { flex: 1; min-width: 0; }
+.fe-name { font-weight: 500; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fe-url  { font-size: .73rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.fe-del  {
+  background: none; border: none; color: var(--danger);
+  font-size: 1.25rem; cursor: pointer; padding: 4px 8px; border-radius: 6px;
+  flex-shrink: 0;
+}
+.fe-del:active { background: #fde8e6; }
+
+.add-box { background: var(--accent); border-radius: 14px; padding: 18px; margin-top: 18px; }
+.add-box h3 { font-size: .9rem; font-weight: 600; color: var(--primary); margin-bottom: 12px; }
+
+.field {
+  width: 100%; border: 2px solid var(--border); border-radius: 10px;
+  padding: 11px 13px; font-family: 'Outfit', sans-serif; font-size: .95rem;
+  background: white; color: var(--text); margin-bottom: 10px;
+  transition: border-color .15s;
+}
+.field:focus { outline: none; border-color: var(--primary); }
+.field::placeholder { color: #b0bec5; }
+
+.btn-primary {
+  background: var(--primary); color: white; border: none; border-radius: 10px;
+  padding: 12px 24px; font-family: 'Outfit', sans-serif; font-size: .95rem;
+  font-weight: 500; cursor: pointer; width: 100%; transition: background .15s;
+}
+.btn-primary:active { background: var(--primary-lt); }
+
+.divider { border: none; border-top: 2px solid var(--border); margin: 22px 0; }
+
+.pin-section h3 { font-size: .9rem; font-weight: 600; color: var(--text); margin-bottom: 12px; }
+.pin-row { display: flex; gap: 10px; align-items: center; }
+.pin-in {
+  width: 100px; border: 2px solid var(--border); border-radius: 10px;
+  padding: 10px 13px; font-family: 'Outfit', sans-serif; font-size: 1rem;
+  letter-spacing: .2em; text-align: center; background: white; color: var(--text);
+}
+.pin-in:focus { outline: none; border-color: var(--primary); }
+.btn-sec {
+  background: var(--primary); color: white; border: none; border-radius: 10px;
+  padding: 10px 18px; font-family: 'Outfit', sans-serif; font-size: .9rem;
+  font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.btn-sec:active { background: var(--primary-lt); }
+.pin-msg { font-size: .85rem; color: var(--primary); margin-top: 8px; min-height: 18px; }
+
+/* ── RETURN NOTE ─────────────────────────────────────────────── */
+/* Shown for 4 seconds before navigating, reminding staff how to return */
+#nav-notice {
+  position: fixed; inset: 0;
+  background: rgba(11,40,50,.85);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 300;
+  backdrop-filter: blur(6px);
+}
+.notice-box {
+  background: white; border-radius: 20px;
+  padding: 36px 40px; max-width: 420px; text-align: center;
+}
+.notice-box h2 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.5rem; color: var(--primary); margin-bottom: 10px;
+}
+.notice-box p { color: var(--muted); font-size: .95rem; line-height: 1.55; margin-bottom: 24px; }
+.notice-countdown {
+  font-size: 2rem; font-weight: 600; color: var(--primary);
+}
+</style>
+
+</head>
+<body>
+
+<!-- ── MENU SCREEN ───────────────────────────────────────────── -->
+
+<div id="menu-screen" class="screen">
+  <div class="menu-header">
+    <h1>Patient Forms</h1>
+    <p>Select a form below to get started</p>
+    <button class="admin-trigger" onclick="openAdmin()">⚙ Admin</button>
+  </div>
+  <div class="grid-wrap">
+    <div class="form-grid" id="form-grid"></div>
+  </div>
+</div>
+
+<!-- ── PRE-NAVIGATION NOTICE ─────────────────────────────────── -->
+
+<div id="nav-notice" class="hidden">
+  <div class="notice-box">
+    <h2>Opening Form…</h2>
+    <p>When you are finished, press the <strong>Home</strong> button on this device, or wait for the screen to reset automatically.</p>
+    <div class="notice-countdown" id="notice-count">3</div>
+  </div>
+</div>
+
+<!-- ── ADMIN OVERLAY ─────────────────────────────────────────── -->
+
+<div id="admin-overlay" class="hidden" onclick="overlayClick(event)">
+  <div class="admin-panel" id="admin-panel">
+    <div class="ap-header">
+      <h2>Admin Panel</h2>
+      <button class="ap-close" onclick="closeAdmin()">✕</button>
+    </div>
+    <div class="ap-body">
+
+```
+  <!-- Passcode -->
+  <div id="passcode-screen">
+    <div class="pc-title">Admin Access</div>
+    <div class="pc-sub">Enter your 4-digit PIN to continue</div>
+    <div class="pc-dots" id="pc-dots">
+      <div class="dot" id="d0"></div><div class="dot" id="d1"></div>
+      <div class="dot" id="d2"></div><div class="dot" id="d3"></div>
+    </div>
+    <div class="numpad">
+      <button class="num-btn" onclick="numPress('1')">1</button>
+      <button class="num-btn" onclick="numPress('2')">2</button>
+      <button class="num-btn" onclick="numPress('3')">3</button>
+      <button class="num-btn" onclick="numPress('4')">4</button>
+      <button class="num-btn" onclick="numPress('5')">5</button>
+      <button class="num-btn" onclick="numPress('6')">6</button>
+      <button class="num-btn" onclick="numPress('7')">7</button>
+      <button class="num-btn" onclick="numPress('8')">8</button>
+      <button class="num-btn" onclick="numPress('9')">9</button>
+      <button class="num-btn blank"></button>
+      <button class="num-btn" onclick="numPress('0')">0</button>
+      <button class="num-btn del" onclick="numDel()">⌫</button>
+    </div>
+    <div class="pc-err" id="pc-err"></div>
+  </div>
+
+  <!-- Editor -->
+  <div id="form-editor">
+    <div class="sec-label">Current Forms</div>
+    <div id="fe-list"></div>
+
+    <div class="add-box">
+      <h3>＋ Add a Form</h3>
+      <input class="field" id="new-name" type="text" placeholder="Form name (e.g. Patient Intake)" />
+      <input class="field" id="new-url"  type="url"  placeholder="Google Form URL" />
+      <button class="btn-primary" onclick="addForm()">Add Form</button>
+    </div>
+
+    <hr class="divider">
+
+    <div class="pin-section">
+      <h3>Change Admin PIN</h3>
+      <div class="pin-row">
+        <input class="pin-in" id="new-pin" type="password" maxlength="4" placeholder="••••" inputmode="numeric" />
+        <button class="btn-sec" onclick="changePin()">Save PIN</button>
+      </div>
+      <div class="pin-msg" id="pin-msg"></div>
+    </div>
+  </div>
+
+</div>
+```
+
+  </div>
+</div>
+
+<script>
+// ── DEFAULTS ──────────────────────────────────────────────────
+
+const DEMO_FORMS = [
+  { id:'1', name:'Patient Intake',          url:'https://docs.google.com/forms/d/e/PLACEHOLDER1/viewform' },
+  { id:'2', name:'Medical History',         url:'https://docs.google.com/forms/d/e/PLACEHOLDER2/viewform' },
+  { id:'3', name:'Consent & Authorization', url:'https://docs.google.com/forms/d/e/PLACEHOLDER3/viewform' },
+  { id:'4', name:'Insurance Verification',  url:'https://docs.google.com/forms/d/e/PLACEHOLDER4/viewform' },
+  { id:'5', name:'Follow-Up Questionnaire', url:'https://docs.google.com/forms/d/e/PLACEHOLDER5/viewform' },
+];
+const DEFAULT_PIN = '1234';
+
+// ── STORAGE ───────────────────────────────────────────────────
+
+const getForms = () => { try { const s=localStorage.getItem('kiosk_forms'); return s?JSON.parse(s):DEMO_FORMS; } catch{return DEMO_FORMS;} };
+const saveForms = f => localStorage.setItem('kiosk_forms', JSON.stringify(f));
+const getPin    = () => localStorage.getItem('kiosk_pin') || DEFAULT_PIN;
+const savePin   = p => localStorage.setItem('kiosk_pin', p);
+const esc       = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// ── MENU ──────────────────────────────────────────────────────
+
+function renderMenu() {
+  const forms = getForms();
+  const g = document.getElementById('form-grid');
+  if (!forms.length) {
+    g.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>No forms yet.<br>Tap <strong>Admin</strong> to add some.</p></div>`;
+    return;
+  }
+  g.innerHTML = forms.map(f =>
+    `<div class="form-card" id="card-${f.id}" onclick="openForm('${f.id}')">
+       <div class="card-name">${esc(f.name)}</div>
+       <div class="card-loading">Opening…</div>
+       <div class="card-arrow">→</div>
+     </div>`
+  ).join('');
+}
+
+// ── DIRECT NAVIGATION ─────────────────────────────────────────
+
+function openForm(id) {
+  const f = getForms().find(x=>x.id===id);
+  if (!f) return;
+
+  // Brief visual feedback on the card
+  const card = document.getElementById('card-'+id);
+  if (card) card.classList.add('loading');
+
+  // Show the notice overlay with a countdown, then navigate
+  const notice = document.getElementById('nav-notice');
+  const count  = document.getElementById('notice-count');
+  notice.classList.remove('hidden');
+
+  let n = 3;
+  count.textContent = n;
+  const tick = setInterval(() => {
+    n--;
+    if (n <= 0) {
+      clearInterval(tick);
+      window.location.href = f.url;   // ← navigation happens here
+    } else {
+      count.textContent = n;
+    }
+  }, 1000);
+}
+
+// ── ADMIN ─────────────────────────────────────────────────────
+
+let pin = '';
+
+function openAdmin() {
+  pin = '';
+  refreshDots();
+  document.getElementById('pc-err').textContent = '';
+  document.getElementById('passcode-screen').style.display = '';
+  document.getElementById('form-editor').style.display = 'none';
+  document.getElementById('admin-overlay').classList.remove('hidden');
+}
+
+function closeAdmin() {
+  document.getElementById('admin-overlay').classList.add('hidden');
+  pin = '';
+}
+
+function overlayClick(e) {
+  if (e.target.id === 'admin-overlay') closeAdmin();
+}
+
+function refreshDots() {
+  for (let i=0;i<4;i++) {
+    const d=document.getElementById('d'+i);
+    d.className='dot'+(i<pin.length?' on':'');
+  }
+}
+
+function numPress(n) {
+  if (pin.length>=4) return;
+  pin+=n; refreshDots();
+  if (pin.length===4) setTimeout(checkPin, 130);
+}
+
+function numDel() {
+  pin=pin.slice(0,-1); refreshDots();
+  document.getElementById('pc-err').textContent='';
+}
+
+function checkPin() {
+  if (pin===getPin()) {
+    document.getElementById('passcode-screen').style.display='none';
+    document.getElementById('form-editor').style.display='';
+    renderEditor();
+  } else {
+    ['d0','d1','d2','d3'].forEach(id=>document.getElementById(id).classList.add('err'));
+    const dots=document.getElementById('pc-dots');
+    dots.classList.add('shake');
+    setTimeout(()=>dots.classList.remove('shake'),400);
+    document.getElementById('pc-err').textContent='Incorrect PIN — try again.';
+    pin=''; setTimeout(refreshDots,420);
+  }
+}
+
+// ── EDITOR ────────────────────────────────────────────────────
+
+function renderEditor() {
+  const forms=getForms();
+  const el=document.getElementById('fe-list');
+  el.innerHTML = forms.length
+    ? forms.map(f=>`
+        <div class="fe-item">
+          <div class="fe-info">
+            <div class="fe-name">${esc(f.name)}</div>
+            <div class="fe-url">${esc(f.url)}</div>
+          </div>
+          <button class="fe-del" onclick="delForm('${f.id}')">🗑</button>
+        </div>`).join('')
+    : '<p style="color:var(--muted);font-size:.9rem;padding:6px 0;">No forms added yet.</p>';
+}
+
+function addForm() {
+  const name=document.getElementById('new-name').value.trim();
+  const url=document.getElementById('new-url').value.trim();
+  if (!name||!url) return;
+  const forms=getForms();
+  forms.push({id:Date.now().toString(), name, url});
+  saveForms(forms);
+  document.getElementById('new-name').value='';
+  document.getElementById('new-url').value='';
+  renderEditor(); renderMenu();
+}
+
+function delForm(id) {
+  saveForms(getForms().filter(f=>f.id!==id));
+  renderEditor(); renderMenu();
+}
+
+function changePin() {
+  const v=document.getElementById('new-pin').value.trim();
+  const msg=document.getElementById('pin-msg');
+  if (!/^\d{4}$/.test(v)) {
+    msg.style.color='var(--danger)'; msg.textContent='PIN must be exactly 4 digits.'; return;
+  }
+  savePin(v);
+  document.getElementById('new-pin').value='';
+  msg.style.color='var(--primary)'; msg.textContent='PIN updated ✓';
+  setTimeout(()=>msg.textContent='', 3000);
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+renderMenu();
+</script>
