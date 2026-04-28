@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kiosk Admin Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<!--
+  STANDALONE ADMIN PANEL
+  Manages the form list and PIN for both kiosk files.
+  Changes are saved to localStorage and will appear in the kiosk automatically.
+
+⚠ IMPORTANT — SAME ORIGIN REQUIRED:
+This file must be served from the same domain/host as the kiosk files
+for localStorage to be shared. Options:
+• All three files in the same GitHub Pages repo ✓
+• All three on the same Netlify site ✓
+• All opened as local files (file://) in the same browser ✓
+• Different domains = data will NOT sync ✗
+–>
+
+<style>
+:root {
+  --bg:         #F0F4F8;
+  --card:       #ffffff;
+  --primary:    #0B5563;
+  --primary-lt: #1A7A8A;
+  --accent:     #D4EDF1;
+  --text:       #1C2E35;
+  --muted:      #607585;
+  --border:     #D0DCE4;
+  --danger:     #B03A2E;
+  --danger-bg:  #FDECEA;
+  --success:    #1A7A5E;
+  --success-bg: #D6F5EC;
+  --warn:       #8A6000;
+  --warn-bg:    #FFF3CD;
+  --shadow:     0 2px 16px rgba(11,85,99,.09);
+  --r:          14px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+/* ── LAYOUT ───────────────────────────────────────────────── */
+
+.topbar {
+  background: var(--primary);
+  color: white;
+  padding: 22px 36px;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.topbar h1 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.7rem;
+  font-weight: 400;
+}
+.topbar-sub {
+  font-size: .85rem;
+  opacity: .65;
+  font-weight: 300;
+}
+
+.page {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* ── CARDS ────────────────────────────────────────────────── */
+
+.card {
+  background: var(--card);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 18px 22px 14px;
+  border-bottom: 2px solid var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.card-header h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.card-header-note {
+  font-size: .78rem;
+  color: var(--muted);
+}
+
+.card-body { padding: 20px 22px; }
+
+/* ── NOTICES ──────────────────────────────────────────────── */
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-radius: 10px;
+  padding: 13px 16px;
+  font-size: .88rem;
+  line-height: 1.5;
+}
+.notice.warn    { background: var(--warn-bg);    color: var(--warn);    border: 1px solid #f0d060; }
+.notice.info    { background: var(--accent);     color: var(--primary); border: 1px solid #a5d8e6; }
+.notice.success { background: var(--success-bg); color: var(--success); border: 1px solid #7adfc0; }
+.notice.danger  { background: var(--danger-bg);  color: var(--danger);  border: 1px solid #f5b4ae; }
+.notice-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+
+/* ── FORM LIST ────────────────────────────────────────────── */
+
+#form-list { display: flex; flex-direction: column; gap: 8px; min-height: 40px; }
+
+.form-row {
+  background: var(--bg);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: border-color .15s, background .15s;
+}
+.form-row.editing {
+  background: #fff;
+  border-color: var(--primary-lt);
+  box-shadow: 0 0 0 3px rgba(26,122,138,.10);
+}
+
+.row-handle {
+  color: #b0bec5;
+  font-size: 1.1rem;
+  cursor: grab;
+  flex-shrink: 0;
+  user-select: none;
+  padding: 0 2px;
+}
+
+.row-order {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.order-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  width: 24px; height: 22px;
+  cursor: pointer;
+  font-size: .7rem;
+  color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  transition: background .1s, color .1s;
+}
+.order-btn:hover { background: var(--accent); color: var(--primary); border-color: var(--primary-lt); }
+.order-btn:disabled { opacity: .3; cursor: default; }
+.order-btn:disabled:hover { background: none; color: var(--muted); border-color: var(--border); }
+
+.row-fields {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Static view */
+.row-name { font-weight: 500; font-size: .98rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-url  { font-size: .74rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+
+/* Inline edit inputs */
+.row-input {
+  width: 100%;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-family: 'Outfit', sans-serif;
+  font-size: .9rem;
+  background: var(--bg);
+  color: var(--text);
+  margin-bottom: 6px;
+  transition: border-color .15s;
+}
+.row-input:last-child { margin-bottom: 0; }
+.row-input:focus { outline: none; border-color: var(--primary); background: white; }
+
+.row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.icon-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: .85rem;
+  cursor: pointer;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: all .15s;
+  font-family: 'Outfit', sans-serif;
+}
+.icon-btn:hover { background: var(--bg); color: var(--text); }
+.icon-btn.edit  { }
+.icon-btn.save  { background: var(--primary); color: white; border-color: var(--primary); }
+.icon-btn.save:hover { background: var(--primary-lt); }
+.icon-btn.del   { color: var(--danger); border-color: #f5b4ae; }
+.icon-btn.del:hover { background: var(--danger-bg); }
+.icon-btn.cancel { }
+
+.empty-list {
+  text-align: center;
+  padding: 28px 20px;
+  color: var(--muted);
+  font-size: .9rem;
+  background: var(--bg);
+  border-radius: 10px;
+}
+
+/* ── ADD FORM ─────────────────────────────────────────────── */
+
+.add-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+@media (max-width: 540px) { .add-row { grid-template-columns: 1fr; } }
+
+.field {
+  width: 100%;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 13px;
+  font-family: 'Outfit', sans-serif;
+  font-size: .95rem;
+  background: white;
+  color: var(--text);
+  transition: border-color .15s;
+}
+.field:focus { outline: none; border-color: var(--primary); }
+.field::placeholder { color: #b5c5cf; }
+
+.add-row-btn {
+  grid-column: 1 / -1;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  font-family: 'Outfit', sans-serif;
+  font-size: .95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s;
+}
+.add-row-btn:hover { background: var(--primary-lt); }
+
+/* ── PIN ──────────────────────────────────────────────────── */
+
+.pin-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.pin-field-wrap { display: flex; flex-direction: column; gap: 5px; }
+.field-label { font-size: .78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.pin-in {
+  width: 110px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 13px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 1rem;
+  letter-spacing: .15em;
+  text-align: center;
+  background: white;
+  color: var(--text);
+}
+.pin-in:focus { outline: none; border-color: var(--primary); }
+
+.btn-save-pin {
+  background: var(--primary);
+  color: white; border: none; border-radius: 10px;
+  padding: 10px 22px;
+  font-family: 'Outfit', sans-serif; font-size: .9rem; font-weight: 500;
+  cursor: pointer; transition: background .15s; align-self: flex-end;
+  margin-bottom: 1px;
+}
+.btn-save-pin:hover { background: var(--primary-lt); }
+
+.pin-cur {
+  font-size: .85rem; color: var(--muted);
+  align-self: flex-end; margin-bottom: 13px;
+}
+strong.pin-val {
+  font-weight: 600;
+  color: var(--text);
+  font-family: monospace;
+  font-size: .95rem;
+  letter-spacing: .1em;
+}
+
+.field-msg { font-size: .83rem; margin-top: 8px; min-height: 18px; }
+.field-msg.ok  { color: var(--success); }
+.field-msg.err { color: var(--danger); }
+
+/* ── IMPORT / EXPORT ──────────────────────────────────────── */
+
+.io-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.btn-outline {
+  background: white;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-family: 'Outfit', sans-serif;
+  font-size: .9rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn-outline:hover { border-color: var(--primary); color: var(--primary); background: var(--accent); }
+
+.btn-danger {
+  background: white;
+  border: 2px solid #f5b4ae;
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-family: 'Outfit', sans-serif;
+  font-size: .9rem;
+  font-weight: 500;
+  color: var(--danger);
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn-danger:hover { background: var(--danger-bg); border-color: var(--danger); }
+
+.import-area {
+  width: 100%;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 13px;
+  font-family: monospace;
+  font-size: .82rem;
+  background: var(--bg);
+  color: var(--text);
+  resize: vertical;
+  min-height: 80px;
+  margin-top: 12px;
+  transition: border-color .15s;
+  display: none;
+}
+.import-area:focus { outline: none; border-color: var(--primary); }
+
+.import-submit {
+  margin-top: 8px;
+  background: var(--primary); color: white; border: none; border-radius: 10px;
+  padding: 9px 20px; font-family: 'Outfit', sans-serif; font-size: .88rem;
+  font-weight: 500; cursor: pointer; display: none;
+}
+.import-submit:hover { background: var(--primary-lt); }
+
+#io-msg { font-size: .83rem; margin-top: 8px; min-height: 18px; }
+#io-msg.ok  { color: var(--success); }
+#io-msg.err { color: var(--danger); }
+
+/* ── TOAST ────────────────────────────────────────────────── */
+
+#toast {
+  position: fixed;
+  bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: #1C2E35;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 40px;
+  font-size: .9rem;
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity .25s, transform .25s;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 100;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Kiosk Admin</h1>
+  <span class="topbar-sub">Form &amp; PIN management</span>
+</div>
+
+<div class="page">
+
+  <!-- Origin notice -->
+
+  <div class="notice warn" id="origin-notice" style="display:none">
+    <span class="notice-icon">⚠️</span>
+    <div>
+      <strong>Same-origin reminder:</strong> This admin panel and the kiosk files must be hosted on the
+      <strong>same domain</strong> (or all opened as local files) for changes to appear in the kiosk.
+      Different domains cannot share localStorage.
+    </div>
+  </div>
+
+  <!-- Forms card -->
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Forms</h2>
+      <span class="card-header-note" id="form-count">0 forms</span>
+    </div>
+    <div class="card-body" style="display:flex;flex-direction:column;gap:16px;">
+
+```
+  <div id="form-list"></div>
+
+  <!-- Add new -->
+  <div>
+    <div style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;">Add a Form</div>
+    <div class="add-row">
+      <input class="field" id="new-name" type="text"  placeholder="Form name (e.g. Patient Intake)" />
+      <input class="field" id="new-url"  type="url"   placeholder="Google Form URL" />
+      <button class="add-row-btn" onclick="addForm()">＋ Add Form</button>
+    </div>
+  </div>
+
+</div>
+```
+
+  </div>
+
+  <!-- PIN card -->
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Admin PIN</h2>
+      <span class="card-header-note">Used to access the admin panel inside the kiosk</span>
+    </div>
+    <div class="card-body">
+      <div class="pin-row">
+        <div class="pin-field-wrap">
+          <label class="field-label" for="new-pin">New PIN (4 digits)</label>
+          <input class="pin-in" id="new-pin" type="text" maxlength="4" placeholder="••••" inputmode="numeric" autocomplete="off" />
+        </div>
+        <button class="btn-save-pin" onclick="savePin()">Save PIN</button>
+        <div class="pin-cur">Current PIN: <strong class="pin-val" id="cur-pin-display">—</strong></div>
+      </div>
+      <div class="field-msg" id="pin-msg"></div>
+    </div>
+  </div>
+
+  <!-- Import / Export card -->
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Backup &amp; Restore</h2>
+      <span class="card-header-note">Export your form list as JSON, or paste one to restore</span>
+    </div>
+    <div class="card-body" style="display:flex;flex-direction:column;gap:12px;">
+      <div class="io-row">
+        <button class="btn-outline" onclick="exportForms()">↓ Export JSON</button>
+        <button class="btn-outline" onclick="toggleImport()">↑ Import JSON</button>
+        <button class="btn-danger"  onclick="resetAll()">⚠ Reset to Defaults</button>
+      </div>
+      <textarea class="import-area" id="import-area" placeholder='Paste exported JSON here, e.g. [{"id":"1","name":"...","url":"..."}]'></textarea>
+      <button class="import-submit" id="import-submit" onclick="importForms()">Apply Import</button>
+      <div id="io-msg"></div>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── STORAGE KEYS (must match kiosk files) ─────────────────────
+
+const FORMS_KEY = 'kiosk_forms';
+const PIN_KEY   = 'kiosk_pin';
+
+const DEFAULT_FORMS = [
+  { id:'1', name:'Patient Intake',          url:'https://docs.google.com/forms/d/e/PLACEHOLDER1/viewform' },
+  { id:'2', name:'Medical History',         url:'https://docs.google.com/forms/d/e/PLACEHOLDER2/viewform' },
+  { id:'3', name:'Consent & Authorization', url:'https://docs.google.com/forms/d/e/PLACEHOLDER3/viewform' },
+  { id:'4', name:'Insurance Verification',  url:'https://docs.google.com/forms/d/e/PLACEHOLDER4/viewform' },
+  { id:'5', name:'Follow-Up Questionnaire', url:'https://docs.google.com/forms/d/e/PLACEHOLDER5/viewform' },
+];
+const DEFAULT_PIN = '1234';
+
+// ── STORAGE HELPERS ───────────────────────────────────────────
+
+function getForms() {
+  try { const s=localStorage.getItem(FORMS_KEY); return s?JSON.parse(s):DEFAULT_FORMS; } catch{return DEFAULT_FORMS;}
+}
+function writeForms(f) { localStorage.setItem(FORMS_KEY, JSON.stringify(f)); }
+function getPin()  { return localStorage.getItem(PIN_KEY) || DEFAULT_PIN; }
+function writePin(p) { localStorage.setItem(PIN_KEY, p); }
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// ── TOAST ─────────────────────────────────────────────────────
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+// ── RENDER FORMS LIST ─────────────────────────────────────────
+
+let editingId = null;
+
+function renderForms() {
+  const forms = getForms();
+  const el = document.getElementById('form-list');
+  document.getElementById('form-count').textContent = forms.length + ' form' + (forms.length===1?'':'s');
+
+  if (!forms.length) {
+    el.innerHTML = '<div class="empty-list">No forms yet — add one below.</div>';
+    return;
+  }
+
+  el.innerHTML = forms.map((f, i) => {
+    const isEditing = editingId === f.id;
+    return `
+    <div class="form-row${isEditing?' editing':''}" id="row-${f.id}">
+      <div class="row-order">
+        <button class="order-btn" onclick="moveForm('${f.id}',-1)" title="Move up"  ${i===0?'disabled':''}>▲</button>
+        <button class="order-btn" onclick="moveForm('${f.id}',1)"  title="Move down" ${i===forms.length-1?'disabled':''}>▼</button>
+      </div>
+      <div class="row-fields">
+        ${isEditing ? `
+          <input class="row-input" id="edit-name-${f.id}" type="text" value="${esc(f.name)}" placeholder="Form name" />
+          <input class="row-input" id="edit-url-${f.id}"  type="url"  value="${esc(f.url)}"  placeholder="Google Form URL" />
+        ` : `
+          <div class="row-name">${esc(f.name)}</div>
+          <div class="row-url">${esc(f.url)}</div>
+        `}
+      </div>
+      <div class="row-actions">
+        ${isEditing ? `
+          <button class="icon-btn save"   onclick="saveEdit('${f.id}')">✓ Save</button>
+          <button class="icon-btn cancel" onclick="cancelEdit()">✕</button>
+        ` : `
+          <button class="icon-btn edit" onclick="startEdit('${f.id}')">✏ Edit</button>
+          <button class="icon-btn del"  onclick="deleteForm('${f.id}')">🗑</button>
+        `}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── FORM CRUD ─────────────────────────────────────────────────
+
+function addForm() {
+  const name = document.getElementById('new-name').value.trim();
+  const url  = document.getElementById('new-url').value.trim();
+  if (!name) { toast('Please enter a form name.'); return; }
+  if (!url)  { toast('Please enter a form URL.'); return; }
+  const forms = getForms();
+  forms.push({ id: Date.now().toString(), name, url });
+  writeForms(forms);
+  document.getElementById('new-name').value = '';
+  document.getElementById('new-url').value  = '';
+  editingId = null;
+  renderForms();
+  toast('Form added ✓');
+}
+
+function deleteForm(id) {
+  if (!confirm('Delete this form from the kiosk?')) return;
+  writeForms(getForms().filter(f=>f.id!==id));
+  if (editingId===id) editingId=null;
+  renderForms();
+  toast('Form deleted.');
+}
+
+function startEdit(id) {
+  editingId = id;
+  renderForms();
+  document.getElementById('edit-name-'+id)?.focus();
+}
+
+function cancelEdit() {
+  editingId = null;
+  renderForms();
+}
+
+function saveEdit(id) {
+  const name = document.getElementById('edit-name-'+id)?.value.trim();
+  const url  = document.getElementById('edit-url-'+id)?.value.trim();
+  if (!name || !url) { toast('Name and URL are both required.'); return; }
+  const forms = getForms().map(f => f.id===id ? { ...f, name, url } : f);
+  writeForms(forms);
+  editingId = null;
+  renderForms();
+  toast('Changes saved ✓');
+}
+
+function moveForm(id, dir) {
+  const forms = getForms();
+  const i = forms.findIndex(f=>f.id===id);
+  const j = i + dir;
+  if (j<0 || j>=forms.length) return;
+  [forms[i], forms[j]] = [forms[j], forms[i]];
+  writeForms(forms);
+  renderForms();
+}
+
+// ── PIN ───────────────────────────────────────────────────────
+
+function renderPin() {
+  document.getElementById('cur-pin-display').textContent = getPin();
+}
+
+function savePin() {
+  const v = document.getElementById('new-pin').value.trim();
+  const msg = document.getElementById('pin-msg');
+  if (!/^\d{4}$/.test(v)) {
+    msg.className='field-msg err'; msg.textContent='PIN must be exactly 4 digits.'; return;
+  }
+  writePin(v);
+  document.getElementById('new-pin').value = '';
+  renderPin();
+  msg.className='field-msg ok'; msg.textContent='PIN updated ✓';
+  setTimeout(()=>msg.textContent='', 3000);
+  toast('PIN saved ✓');
+}
+
+// ── EXPORT / IMPORT ───────────────────────────────────────────
+
+function exportForms() {
+  const json = JSON.stringify(getForms(), null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'kiosk-forms.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Exported kiosk-forms.json');
+}
+
+function toggleImport() {
+  const area   = document.getElementById('import-area');
+  const btn    = document.getElementById('import-submit');
+  const showing = area.style.display === 'block';
+  area.style.display  = showing ? 'none' : 'block';
+  btn.style.display   = showing ? 'none' : 'inline-block';
+  if (!showing) area.focus();
+}
+
+function importForms() {
+  const raw = document.getElementById('import-area').value.trim();
+  const msg = document.getElementById('io-msg');
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error('Expected an array.');
+    if (!parsed.every(f=>f.name&&f.url)) throw new Error('Each entry needs "name" and "url".');
+    // Ensure IDs exist
+    const fixed = parsed.map(f => ({ id: f.id || Date.now().toString()+Math.random(), name:f.name, url:f.url }));
+    writeForms(fixed);
+    editingId = null;
+    renderForms();
+    document.getElementById('import-area').value = '';
+    toggleImport();
+    msg.className='ok'; msg.textContent=`Imported ${fixed.length} form${fixed.length===1?'':'s'} ✓`;
+    setTimeout(()=>msg.textContent='',4000);
+    toast('Import successful ✓');
+  } catch(e) {
+    msg.className='err'; msg.textContent='Invalid JSON: '+e.message;
+  }
+}
+
+function resetAll() {
+  if (!confirm('Reset all forms to the default placeholder list? This cannot be undone.')) return;
+  localStorage.removeItem(FORMS_KEY);
+  editingId = null;
+  renderForms();
+  toast('Reset to defaults.');
+}
+
+// ── ORIGIN WARNING ────────────────────────────────────────────
+// Show a soft notice if the page is running on file:// protocol,
+// since some browsers isolate file:// pages differently.
+
+if (location.protocol === 'file:') {
+  document.getElementById('origin-notice').style.display = 'flex';
+}
+
+// ── KEYBOARD SHORTCUTS ────────────────────────────────────────
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    if (document.activeElement?.id === 'new-name' ||
+        document.activeElement?.id === 'new-url') {
+      addForm();
+    }
+  }
+  if (e.key === 'Escape' && editingId) cancelEdit();
+});
+
+// ── INIT ──────────────────────────────────────────────────────
+
+renderForms();
+renderPin();
+</script>
